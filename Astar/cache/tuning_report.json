@@ -1,0 +1,406 @@
+{
+  "holdout_ratio": 0.2,
+  "holdout_seed": 42,
+  "max_evals": 24,
+  "best_params": {
+    "PRIOR_BLEND": 0.55,
+    "OWNER_CLUSTER_BOOST": 0.08,
+    "COAST_PROXIMITY_BOOST": 0.1,
+    "COAST_SETTLEMENT_BOOST": 0.04,
+    "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
+    "FOREST_FRONTIER_FOREST_BOOST": 0.02
+  },
+  "best_metrics": {
+    "mean_kl": 1.1644142692857753,
+    "mean_cross_entropy": 1.2159268738793545,
+    "top1_accuracy": 0.5377049180327869,
+    "heldout_cells": 1600,
+    "heldout_weight": 1830.0
+  },
+  "trials": [
+    {
+      "rank": 1,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.04
+      },
+      "mean_cross_entropy": 1.235712353649035,
+      "mean_kl": 1.1841998157605447,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 2,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.04
+      },
+      "mean_cross_entropy": 1.2606299561880976,
+      "mean_kl": 1.2091173515945184,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 3,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.04,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2419944554730191,
+      "mean_kl": 1.190481867555712,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 4,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2450139113462688,
+      "mean_kl": 1.193501356781506,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 5,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.04,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2481560545540897,
+      "mean_kl": 1.1966434999893272,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 6,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.04
+      },
+      "mean_cross_entropy": 1.2411969794601692,
+      "mean_kl": 1.189684391542862,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 7,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.08,
+        "COAST_PROXIMITY_BOOST": 0.14,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.06
+      },
+      "mean_cross_entropy": 1.254385175861296,
+      "mean_kl": 1.2028726046202614,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 8,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.14,
+        "COAST_SETTLEMENT_BOOST": 0.04,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2711200985100752,
+      "mean_kl": 1.2196075105927682,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 9,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.09,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.04
+      },
+      "mean_cross_entropy": 1.26416432531805,
+      "mean_kl": 1.212651754077015,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 10,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.14,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.04
+      },
+      "mean_cross_entropy": 1.2384869851701246,
+      "mean_kl": 1.186974430605362,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 11,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.06,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2676236512231045,
+      "mean_kl": 1.2161109966007086,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 12,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.14,
+        "COAST_SETTLEMENT_BOOST": 0.09,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2428064898714992,
+      "mean_kl": 1.1912939353067367,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 13,
+      "params": {
+        "PRIOR_BLEND": 0.55,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.14,
+        "COAST_SETTLEMENT_BOOST": 0.04,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.04
+      },
+      "mean_cross_entropy": 1.2188157712175547,
+      "mean_kl": 1.167303216652792,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 14,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.06,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.06
+      },
+      "mean_cross_entropy": 1.2561102528389685,
+      "mean_kl": 1.2045976815979338,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 15,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.09,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.06
+      },
+      "mean_cross_entropy": 1.233736232069672,
+      "mean_kl": 1.1822236274760929,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 16,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.06,
+        "COAST_SETTLEMENT_BOOST": 0.09,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.244939001531549,
+      "mean_kl": 1.1934264136142418,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 17,
+      "params": {
+        "PRIOR_BLEND": 0.55,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.14,
+        "COAST_SETTLEMENT_BOOST": 0.09,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.06
+      },
+      "mean_cross_entropy": 1.2197713049383112,
+      "mean_kl": 1.1682587503735484,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 18,
+      "params": {
+        "PRIOR_BLEND": 0.65,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.06,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2454780620303962,
+      "mean_kl": 1.1939654907893613,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 19,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.09,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2728731082436817,
+      "mean_kl": 1.2213605370026468,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 20,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.16,
+        "COAST_PROXIMITY_BOOST": 0.06,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.06
+      },
+      "mean_cross_entropy": 1.2614487111242743,
+      "mean_kl": 1.2099361565595117,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 21,
+      "params": {
+        "PRIOR_BLEND": 0.55,
+        "OWNER_CLUSTER_BOOST": 0.08,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.04,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2159268738793545,
+      "mean_kl": 1.1644142692857753,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 22,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.1,
+        "COAST_SETTLEMENT_BOOST": 0.09,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.02
+      },
+      "mean_cross_entropy": 1.2687368590975068,
+      "mean_kl": 1.217224287856472,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 23,
+      "params": {
+        "PRIOR_BLEND": 0.75,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.06,
+        "COAST_SETTLEMENT_BOOST": 0.04,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.04
+      },
+      "mean_cross_entropy": 1.25892098848937,
+      "mean_kl": 1.207408400572063,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    },
+    {
+      "rank": 24,
+      "params": {
+        "PRIOR_BLEND": 0.55,
+        "OWNER_CLUSTER_BOOST": 0.12,
+        "COAST_PROXIMITY_BOOST": 0.14,
+        "COAST_SETTLEMENT_BOOST": 0.06,
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
+        "FOREST_FRONTIER_FOREST_BOOST": 0.06
+      },
+      "mean_cross_entropy": 1.2160791282445356,
+      "mean_kl": 1.1645665403272285,
+      "top1_accuracy": 0.5377049180327869,
+      "heldout_cells": 1600,
+      "heldout_weight": 1830.0
+    }
+  ]
+}

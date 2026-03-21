@@ -67,6 +67,23 @@ STATIC_CLASS_CONFIDENCE = 0.95
 OWNER_CLUSTER_SIGMA = 4.0    # broader than INTERP_SIGMA — faction territory is larger
 OWNER_CLUSTER_BOOST = 0.12   # max class-1 probability lift per cell
 
+# Terrain-informed prior feature strengths.
+COAST_PROXIMITY_BOOST = 0.10         # class-2 (port) lift near coast
+COAST_SETTLEMENT_BOOST = 0.06        # class-1 (settlement) lift near coast
+FOREST_FRONTIER_SETTLEMENT_BOOST = 0.07  # class-1 lift near forest edge
+FOREST_FRONTIER_FOREST_BOOST = 0.04      # class-4 lift near forest edge
+
+# Phase-2 composite query scoring weights.
+PHASE2_WEIGHT_ENTROPY = 0.60
+PHASE2_WEIGHT_COAST = 0.20
+PHASE2_WEIGHT_FOREST = 0.12
+PHASE2_WEIGHT_CONFLICT = 0.08
+
+# Holdout evaluator / auto-tuning defaults.
+HOLDOUT_RATIO = 0.20
+HOLDOUT_SEED = 42
+TUNE_MAX_EVALS = 24
+
 # ── Query budget allocation ──────────────────────────────────────────────────
 # Phase 1: tile the full map once per seed (9 non-overlapping 15×15 windows).
 # Phase 2: spend remaining queries revisiting high-uncertainty cells.

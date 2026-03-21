@@ -148,15 +148,15 @@ class ObservationPlanner:
 
     def phase2_viewports(
         self,
-        entropy_map: np.ndarray,
+        score_map: np.ndarray,
         seed_id: int,
     ) -> list[Viewport]:
         """
-        Return up to ``remaining`` viewports centred on the highest-entropy
+        Return up to ``remaining`` viewports centred on the highest-score
         regions for a given seed.
 
         Args:
-            entropy_map: Per-cell mean entropy, shape ``(H, W)``.
+            score_map: Per-cell acquisition score, shape ``(H, W)``.
             seed_id:     Which seed to refine.
         """
         available = self.budget.remaining
@@ -166,8 +166,8 @@ class ObservationPlanner:
         viewports: list[Viewport] = []
         seen_centres: set[tuple[int, int]] = set()
 
-        # Smooth the entropy map to find the hottest region.
-        flat_idx = np.argsort(entropy_map.ravel())[::-1]
+        # Smooth the score map to find the hottest region.
+        flat_idx = np.argsort(score_map.ravel())[::-1]
         half = config.VIEWPORT_MAX_SIZE // 2
 
         for idx in flat_idx:

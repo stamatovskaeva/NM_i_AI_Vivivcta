@@ -102,6 +102,20 @@ class WorldModel:
             s: np.zeros((self.H, self.W), dtype=np.float32)
             for s in range(num_seeds)
         }
+        # Per-seed terrain opportunity maps derived from initial grid.
+        self._coast_proximity: dict[int, np.ndarray] = {
+            s: np.zeros((self.H, self.W), dtype=np.float32)
+            for s in range(num_seeds)
+        }
+        self._forest_frontier: dict[int, np.ndarray] = {
+            s: np.zeros((self.H, self.W), dtype=np.float32)
+            for s in range(num_seeds)
+        }
+        # Per-seed owner overlap map; high values indicate likely faction conflict frontiers.
+        self._owner_conflict_prior: dict[int, np.ndarray] = {
+            s: np.zeros((self.H, self.W), dtype=np.float32)
+            for s in range(num_seeds)
+        }
 
     # ── Initial state injection ─────────────────────────────────────────────────
 
@@ -142,6 +156,9 @@ class WorldModel:
             state = initial_states[seed_id]
             grid = np.array(state.grid, dtype=np.int32)
             prior = self._build_seed_prior(grid)
+            coast_prox, forest_frontier = self._terrain_feature_maps(grid)
+            self._coast_proximity[seed_id] = coast_prox
+            self._forest_frontier[seed_id] = forest_frontier
 
             locked = np.full((self.H, self.W), -1, dtype=np.int32)
             for raw_code, cls in _T2C.items():
@@ -165,6 +182,16 @@ class WorldModel:
 
         logger.info("Built terrain-aware priors for %d seeds.", min(self.num_seeds, len(initial_states)))
     # ── Observation ingestion ────────────────────────────────────────────────
+
+    def reset_dynamic_signals(self) -> None:
+        """Reset settlement-derived dynamic maps so cache replay is idempotent."""
+        for s in range(self.num_seeds):
+            self._ruin_risk[s].fill(0.0)
+            self._health_obs[s].fill(0)
+            self._population[s].fill(0.0)
+            self._mean_population[s] = 1.0
+            self._owner_cluster_prior[s].fill(0.0)
+            self._owner_conflict_prior[s].fill(0.0)
 
     def record_settlements(
         self,
@@ -213,21 +240,34 @@ class WorldModel:
                 owner_cells[oid].append((int(s.x), int(s.y)))
 
         if owner_cells:
-            cluster_map = np.zeros((self.H, self.W), dtype=np.float32)
+            owner_maps: list[np.ndarray] = []
             for cells in owner_cells.values():
                 if len(cells) < 2:
                     continue
                 dot_map = np.zeros((self.H, self.W), dtype=np.float32)
                 for cx, cy in cells:
                     dot_map[cy, cx] += 1.0
-                cluster_map += gaussian_filter(dot_map, sigma=config.OWNER_CLUSTER_SIGMA)
-            peak = cluster_map.max()
-            if peak > 0:
-                cluster_map /= peak
-            # Running max — later calls only strengthen the signal.
-            self._owner_cluster_prior[seed_id] = np.maximum(
-                self._owner_cluster_prior[seed_id], cluster_map
-            )
+                owner_map = gaussian_filter(dot_map, sigma=config.OWNER_CLUSTER_SIGMA)
+                peak = owner_map.max()
+                if peak > 0:
+                    owner_maps.append((owner_map / peak).astype(np.float32))
+
+            if owner_maps:
+                stack = np.stack(owner_maps, axis=0)              # (owners, H, W)
+                cluster_map = stack.max(axis=0)                   # settlement opportunity
+                # High where at least two owner influence fields overlap.
+                if stack.shape[0] >= 2:
+                    sorted_stack = np.sort(stack, axis=0)
+                    conflict_map = np.minimum(sorted_stack[-1], sorted_stack[-2])
+                else:
+                    conflict_map = np.zeros((self.H, self.W), dtype=np.float32)
+                # Running max — later calls only strengthen the signal.
+                self._owner_cluster_prior[seed_id] = np.maximum(
+                    self._owner_cluster_prior[seed_id], cluster_map
+                )
+                self._owner_conflict_prior[seed_id] = np.maximum(
+                    self._owner_conflict_prior[seed_id], conflict_map
+                )
 
         # ── Ruin risk ────────────────────────────────────────────────────────
         for s in settlements:
@@ -320,6 +360,32 @@ class WorldModel:
         """
         entropies = [(sid, self.mean_entropy(sid)) for sid in range(self.num_seeds)]
         return [sid for sid, _ in sorted(entropies, key=lambda x: x[1], reverse=True)]
+
+        def strategic_query_score(self, seed_id: int) -> np.ndarray:
+                """
+                Composite Phase-2 query score map, shape ``(H, W)``.
+
+                Score = weighted mix of:
+                    - posterior entropy (uncertainty)
+                    - coastline proximity opportunity
+                    - forest-frontier opportunity
+                    - owner conflict frontier
+                """
+                entropy = self._normalise01(self.cell_entropy(seed_id))
+                coast = self._coast_proximity[seed_id]
+                forest = self._forest_frontier[seed_id]
+                conflict = self._owner_conflict_prior[seed_id]
+
+                score = (
+                        config.PHASE2_WEIGHT_ENTROPY * entropy
+                        + config.PHASE2_WEIGHT_COAST * coast
+                        + config.PHASE2_WEIGHT_FOREST * forest
+                        + config.PHASE2_WEIGHT_CONFLICT * conflict
+                )
+
+                # Do not spend refinement queries on already observed cells.
+                score = np.where(self._observed[seed_id], 0.0, score)
+                return self._normalise01(score)
 
     # ── Prediction tensor ────────────────────────────────────────────────────
 
@@ -543,19 +609,60 @@ class WorldModel:
             prior[plains_or_empty, ruin_cls] = 0.06
             prior[plains_or_empty, forest_cls] = 0.05
 
-        # Coastline land has elevated chance of port/settlement.
-        ocean_pad = np.pad(ocean.astype(np.int8), 1)
-        coast = np.zeros_like(ocean, dtype=bool)
-        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            coast |= ocean_pad[1 + dy : 1 + dy + self.H, 1 + dx : 1 + dx + self.W] > 0
-        coast_land = coast & (~ocean) & (~mountain)
-        if coast_land.any():
-            prior[coast_land, :] = np.maximum(prior[coast_land, :], config.PROB_FLOOR)
-            prior[coast_land, port_cls] = np.maximum(prior[coast_land, port_cls], 0.14)
-            prior[coast_land, settlement_cls] = np.maximum(prior[coast_land, settlement_cls], 0.12)
-            prior[coast_land, plains_cls] = np.maximum(prior[coast_land, plains_cls], 0.56)
+        coast_proximity, forest_frontier = self._terrain_feature_maps(grid)
+
+        # Coastline proximity raises port/settlement likelihood on nearby land.
+        if coast_proximity.max() > 0:
+            prior[:, :, port_cls] += coast_proximity * config.COAST_PROXIMITY_BOOST
+            prior[:, :, settlement_cls] += coast_proximity * config.COAST_SETTLEMENT_BOOST
+
+        # Forest-frontier cells act as settlement nurseries and forest edges.
+        if forest_frontier.max() > 0:
+            prior[:, :, settlement_cls] += forest_frontier * config.FOREST_FRONTIER_SETTLEMENT_BOOST
+            prior[:, :, forest_cls] += forest_frontier * config.FOREST_FRONTIER_FOREST_BOOST
+
+        # Keep static terrain classes dominant.
+        prior[ocean, :] = config.PROB_FLOOR
+        prior[ocean, ocean_cls] = config.STATIC_CLASS_CONFIDENCE
+        prior[mountain, :] = config.PROB_FLOOR
+        prior[mountain, mountain_cls] = config.STATIC_CLASS_CONFIDENCE
 
         return self._normalise(prior)
+
+    def _terrain_feature_maps(self, grid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Return terrain opportunity maps (coast proximity, forest frontier), each (H, W) in [0,1].
+        """
+        ocean = grid == 10
+        mountain = grid == 5
+        forest = grid == 4
+        land_mask = (~ocean) & (~mountain)
+
+        # Coast proximity: smooth ocean mask, keep only land cells.
+        coast_proximity = gaussian_filter(ocean.astype(np.float32), sigma=1.6)
+        coast_proximity = np.where(land_mask, coast_proximity, 0.0)
+        coast_proximity = self._normalise01(coast_proximity)
+
+        # Forest frontier: cells adjacent to forest, then softly expanded.
+        forest_pad = np.pad(forest.astype(np.int8), 1)
+        forest_adj = np.zeros_like(forest, dtype=bool)
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            forest_adj |= forest_pad[1 + dy : 1 + dy + self.H, 1 + dx : 1 + dx + self.W] > 0
+        forest_frontier = (forest_adj & land_mask).astype(np.float32)
+        forest_frontier = gaussian_filter(forest_frontier, sigma=1.2)
+        forest_frontier = np.where(land_mask, forest_frontier, 0.0)
+        forest_frontier = self._normalise01(forest_frontier)
+
+        return coast_proximity.astype(np.float32), forest_frontier.astype(np.float32)
+
+    @staticmethod
+    def _normalise01(arr: np.ndarray) -> np.ndarray:
+        """Scale array to [0,1] (returns zeros if input is constant)."""
+        mn = float(np.min(arr))
+        mx = float(np.max(arr))
+        if mx - mn < 1e-9:
+            return np.zeros_like(arr, dtype=np.float32)
+        return ((arr - mn) / (mx - mn)).astype(np.float32)
 
     @staticmethod
     def _normalise(tensor: np.ndarray) -> np.ndarray:

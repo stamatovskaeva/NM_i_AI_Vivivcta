@@ -20,9 +20,12 @@ Usage
 from __future__ import annotations
 
 import argparse
+import copy
+import itertools
 import json
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -100,7 +103,7 @@ def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None
         seed_rank = model.seed_rank_by_entropy()
         allocation = planner.allocate_by_seed_entropy(seed_rank)
         
-        logger.info("Phase 2: %d queries remaining — entropy-guided allocation", planner.budget.remaining)
+        logger.info("Phase 2: %d queries remaining — strategic allocation (entropy+terrain+conflict)", planner.budget.remaining)
         for seed_id in seed_rank:
             ent = model.mean_entropy(seed_id)
             logger.info(f"  seed {seed_id}: entropy={ent:.4f}, will query {allocation[seed_id]}× if budget allows")
@@ -114,8 +117,8 @@ def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None
             # Only query this seed up to its allocated share
             if queries_per_seed[seed_id] >= allocation[seed_id]:
                 continue
-            entropy_map = model.cell_entropy(seed_id)
-            phase2_vps  = planner.phase2_viewports(entropy_map, seed_id)
+            score_map = model.strategic_query_score(seed_id)
+            phase2_vps  = planner.phase2_viewports(score_map, seed_id)
 
             for vp in phase2_vps:
                 if queries_per_seed[seed_id] >= allocation[seed_id]:
@@ -175,6 +178,7 @@ def _replay_settlement_health(model: WorldModel) -> None:
     cache_file = config.OBS_QUERIES_FILE
     if not cache_file.exists():
         return
+    model.reset_dynamic_signals()
     n = 0
     for line in cache_file.open("r", encoding="utf-8"):
         try:
@@ -221,6 +225,232 @@ def _log_prediction_stats(seed_id: int, tensor: np.ndarray) -> None:
         mean_ent,
         dict(enumerate(class_counts.tolist())),
     )
+
+
+@dataclass
+class HoldoutEval:
+    mean_cross_entropy: float
+    mean_kl: float
+    top1_accuracy: float
+    heldout_cells: int
+    heldout_weight: float
+
+
+def _build_holdout_masks(
+    model: WorldModel,
+    ratio: float,
+    seed: int,
+) -> dict[int, np.ndarray]:
+    """Sample held-out observed cells per seed for offline evaluation."""
+    rng = np.random.default_rng(seed)
+    masks: dict[int, np.ndarray] = {}
+    for sid in range(model.num_seeds):
+        observed_rc = np.argwhere(model._observed[sid])
+        mask = np.zeros((model.H, model.W), dtype=bool)
+        if len(observed_rc) == 0:
+            masks[sid] = mask
+            continue
+        n_holdout = int(round(len(observed_rc) * ratio))
+        n_holdout = max(1, min(n_holdout, len(observed_rc)))
+        pick = rng.choice(len(observed_rc), size=n_holdout, replace=False)
+        rows = observed_rc[pick, 0]
+        cols = observed_rc[pick, 1]
+        mask[rows, cols] = True
+        masks[sid] = mask
+    return masks
+
+
+def _evaluate_holdout(
+    source_model: WorldModel,
+    holdout_masks: dict[int, np.ndarray],
+) -> HoldoutEval:
+    """
+    Evaluate predictive quality on held-out observed cells.
+
+    - Removes held-out cells from the training view.
+    - Predicts them using the same model pipeline.
+    - Scores weighted cross-entropy / KL against empirical observed class mix.
+    """
+    eval_model = copy.deepcopy(source_model)
+    for sid, mask in holdout_masks.items():
+        if mask.any():
+            eval_model._counts[sid][mask, :] = 0.0
+            eval_model._observed[sid][mask] = False
+
+    preds = eval_model.all_predictions()
+
+    total_weight = 0.0
+    weighted_ce = 0.0
+    weighted_kl = 0.0
+    weighted_acc = 0.0
+    cell_count = 0
+
+    for sid, mask in holdout_masks.items():
+        if not mask.any():
+            continue
+
+        true_counts = source_model._counts[sid][mask]  # (N, K)
+        totals = true_counts.sum(axis=1)
+        valid = totals > 0
+        if not valid.any():
+            continue
+
+        true_counts = true_counts[valid]
+        totals = totals[valid]
+        p_true = true_counts / totals[:, None]
+
+        q_pred = preds[sid][mask][valid]
+        q_pred = np.clip(q_pred, config.PROB_FLOOR, 1.0)
+        q_pred = q_pred / q_pred.sum(axis=1, keepdims=True)
+
+        ce = -np.sum(p_true * np.log(q_pred), axis=1)
+        kl = np.sum(
+            p_true * (np.log(np.clip(p_true, 1e-12, 1.0)) - np.log(q_pred)), axis=1
+        )
+        acc = (np.argmax(p_true, axis=1) == np.argmax(q_pred, axis=1)).astype(np.float32)
+
+        weighted_ce += float(np.sum(ce * totals))
+        weighted_kl += float(np.sum(kl * totals))
+        weighted_acc += float(np.sum(acc * totals))
+        total_weight += float(np.sum(totals))
+        cell_count += int(len(totals))
+
+    if total_weight <= 0:
+        return HoldoutEval(
+            mean_cross_entropy=float("nan"),
+            mean_kl=float("nan"),
+            top1_accuracy=float("nan"),
+            heldout_cells=0,
+            heldout_weight=0.0,
+        )
+
+    return HoldoutEval(
+        mean_cross_entropy=weighted_ce / total_weight,
+        mean_kl=weighted_kl / total_weight,
+        top1_accuracy=weighted_acc / total_weight,
+        heldout_cells=cell_count,
+        heldout_weight=total_weight,
+    )
+
+
+def run_tune(
+    model: WorldModel,
+    info: RoundInfo,
+    holdout_ratio: float,
+    holdout_seed: int,
+    max_evals: int,
+) -> None:
+    """Run holdout evaluation + lightweight auto-tuning over key model weights."""
+    holdout_ratio = float(np.clip(holdout_ratio, 0.05, 0.60))
+    max_evals = max(4, int(max_evals))
+
+    if not any(model._observed[s].any() for s in range(model.num_seeds)):
+        logger.error("Tune requires cached observations. Run observe first or pass --resume with a valid cache.")
+        return
+
+    _replay_settlement_health(model)
+    holdout_masks = _build_holdout_masks(model, holdout_ratio, holdout_seed)
+
+    tune_levels: dict[str, list[float]] = {
+        "PRIOR_BLEND": [0.55, 0.65, 0.75],
+        "OWNER_CLUSTER_BOOST": [0.08, 0.12, 0.16],
+        "COAST_PROXIMITY_BOOST": [0.06, 0.10, 0.14],
+        "COAST_SETTLEMENT_BOOST": [0.04, 0.06, 0.09],
+        "FOREST_FRONTIER_SETTLEMENT_BOOST": [0.05, 0.07, 0.10],
+        "FOREST_FRONTIER_FOREST_BOOST": [0.02, 0.04, 0.06],
+    }
+
+    keys = list(tune_levels.keys())
+    base_params = {k: float(getattr(config, k)) for k in keys}
+
+    all_candidates = [
+        dict(zip(keys, combo))
+        for combo in itertools.product(*(tune_levels[k] for k in keys))
+    ]
+
+    rng = np.random.default_rng(holdout_seed)
+    rng.shuffle(all_candidates)
+    all_candidates = [base_params] + [c for c in all_candidates if c != base_params]
+    candidates = all_candidates[:max_evals]
+
+    best_params = base_params.copy()
+    best_eval = HoldoutEval(mean_cross_entropy=np.inf, mean_kl=np.inf,
+                            top1_accuracy=0.0, heldout_cells=0, heldout_weight=0.0)
+    rows: list[dict] = []
+
+    logger.info("Tuning: evaluating %d candidates (holdout_ratio=%.2f, seed=%d)",
+                len(candidates), holdout_ratio, holdout_seed)
+
+    for i, params in enumerate(candidates, start=1):
+        for k, v in params.items():
+            setattr(config, k, float(v))
+
+        candidate_model = copy.deepcopy(model)
+        if info.initial_states:
+            candidate_model.set_initial_states(info.initial_states)
+
+        metrics = _evaluate_holdout(candidate_model, holdout_masks)
+        row = {
+            "rank": i,
+            "params": {k: float(v) for k, v in params.items()},
+            "mean_cross_entropy": float(metrics.mean_cross_entropy),
+            "mean_kl": float(metrics.mean_kl),
+            "top1_accuracy": float(metrics.top1_accuracy),
+            "heldout_cells": int(metrics.heldout_cells),
+            "heldout_weight": float(metrics.heldout_weight),
+        }
+        rows.append(row)
+
+        logger.info(
+            "Tune %02d/%02d: KL=%.6f CE=%.6f Acc=%.4f params=%s",
+            i,
+            len(candidates),
+            metrics.mean_kl,
+            metrics.mean_cross_entropy,
+            metrics.top1_accuracy,
+            params,
+        )
+
+        if metrics.mean_kl < best_eval.mean_kl:
+            best_eval = metrics
+            best_params = {k: float(v) for k, v in params.items()}
+
+    for k, v in best_params.items():
+        setattr(config, k, float(v))
+
+    if info.initial_states:
+        model.set_initial_states(info.initial_states)
+
+    logger.info("Best params by holdout KL: %s", best_params)
+    logger.info(
+        "Best holdout metrics: KL=%.6f CE=%.6f Acc=%.4f (cells=%d)",
+        best_eval.mean_kl,
+        best_eval.mean_cross_entropy,
+        best_eval.top1_accuracy,
+        best_eval.heldout_cells,
+    )
+
+    report = {
+        "holdout_ratio": holdout_ratio,
+        "holdout_seed": holdout_seed,
+        "max_evals": len(candidates),
+        "best_params": best_params,
+        "best_metrics": {
+            "mean_kl": float(best_eval.mean_kl),
+            "mean_cross_entropy": float(best_eval.mean_cross_entropy),
+            "top1_accuracy": float(best_eval.top1_accuracy),
+            "heldout_cells": int(best_eval.heldout_cells),
+            "heldout_weight": float(best_eval.heldout_weight),
+        },
+        "trials": rows,
+    }
+    report_path = config.CACHE_DIR / "tuning_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    logger.info("Tuning report saved to %s", report_path)
+
+    predictions = run_predict(model)
+    logger.info("Predictions regenerated with tuned weights for optional submit.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -307,11 +537,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--phase",
-        choices=["all", "observe", "predict", "submit", "status", "visualise", "baseline-submit"],
+        choices=["all", "observe", "predict", "submit", "status", "visualise", "baseline-submit", "tune"],
         default="all",
         help=(
             "Which phase to run. 'all' runs observe → predict → submit. "
-            "'baseline-submit' skips observe and submits prior-only predictions."
+            "'baseline-submit' skips observe and submits prior-only predictions. "
+            "'tune' runs holdout evaluation + auto-weight search."
         ),
     )
     p.add_argument(
@@ -324,6 +555,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Required safety flag: explicitly allow submission to the API.",
     )
+    p.add_argument(
+        "--holdout-ratio",
+        type=float,
+        default=config.HOLDOUT_RATIO,
+        help="Fraction of observed cells to hold out during tune phase (default from config).",
+    )
+    p.add_argument(
+        "--holdout-seed",
+        type=int,
+        default=config.HOLDOUT_SEED,
+        help="Random seed for holdout split and candidate sampling.",
+    )
+    p.add_argument(
+        "--tune-max-evals",
+        type=int,
+        default=config.TUNE_MAX_EVALS,
+        help="Maximum number of weight candidates to evaluate in tune phase.",
+    )
     return p.parse_args()
 
 
@@ -331,7 +580,9 @@ def main() -> int:
     args = parse_args()
 
     # ── Load or initialise the world model ──────────────────────────────────
-    if args.resume and config.OBS_FILE.exists():
+    auto_resume_phases = {"predict", "submit", "visualise", "tune"}
+    should_resume = (args.resume or args.phase in auto_resume_phases) and config.OBS_FILE.exists()
+    if should_resume:
         logger.info("Resuming from cached observations: %s", config.OBS_FILE)
         model = WorldModel.load(config.OBS_FILE)
     else:
@@ -382,6 +633,16 @@ def main() -> int:
 
     if args.phase in ("all", "observe"):
         run_observe(client, model, info)
+
+    if args.phase == "tune":
+        run_tune(
+            model=model,
+            info=info,
+            holdout_ratio=args.holdout_ratio,
+            holdout_seed=args.holdout_seed,
+            max_evals=args.tune_max_evals,
+        )
+        return 0
 
     if args.phase in ("all", "predict", "visualise", "submit"):
         predictions = run_predict(model)
