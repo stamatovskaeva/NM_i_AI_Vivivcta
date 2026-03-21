@@ -72,9 +72,11 @@ class WorldModel:
             s: np.full((self.H, self.W, K), 1.0 / K, dtype=np.float32)
             for s in range(num_seeds)
         }
-        # Cells locked to a class by the initial state (e.g. Ocean, Mountain).
-        # These always predict the locked class with high confidence.
-        self._locked_class: np.ndarray | None = None  # (H, W) or None
+        # Seed-specific static locks (Ocean/Mountain) from initial states.
+        self._locked_class: dict[int, np.ndarray] = {
+            s: np.full((self.H, self.W), -1, dtype=np.int32)
+            for s in range(num_seeds)
+        }
 
     # ── Initial state injection ─────────────────────────────────────────────────
 
@@ -98,7 +100,8 @@ class WorldModel:
             if raw_code in (10, 5):   # Ocean and Mountain only — truly static
                 mask = grid == raw_code
                 locked[mask] = cls
-        self._locked_class = locked
+        for seed_id in range(self.num_seeds):
+            self._locked_class[seed_id] = locked.copy()
         logger.info(
             "Locked %d static cells from initial grid "
             "(ocean+mountain never change).",
@@ -114,6 +117,13 @@ class WorldModel:
             state = initial_states[seed_id]
             grid = np.array(state.grid, dtype=np.int32)
             prior = self._build_seed_prior(grid)
+
+            locked = np.full((self.H, self.W), -1, dtype=np.int32)
+            for raw_code, cls in _T2C.items():
+                if raw_code in (10, 5):
+                    mask = grid == raw_code
+                    locked[mask] = cls
+            self._locked_class[seed_id] = locked
 
             for settlement in state.settlements:
                 x = int(settlement.x)
@@ -237,17 +247,17 @@ class WorldModel:
         result = np.where(observed[:, :, np.newaxis], posterior, unobserved_estimate)
 
         # Apply locked cells (Ocean / Mountain) — override with near-certain dist.
-        if self._locked_class is not None:
-            locked_mask = self._locked_class >= 0        # (H, W)
-            if locked_mask.any():
-                locked_dist = np.full((self.H, self.W, K), config.PROB_FLOOR, dtype=np.float32)
-                # Assign remaining probability mass to the locked class.
-                for cls in range(K):
-                    cell_mask = self._locked_class == cls
-                    if cell_mask.any():
-                        locked_dist[cell_mask, cls] = 1.0 - (K - 1) * config.PROB_FLOOR
-                locked_dist = self._normalise(locked_dist)
-                result = np.where(locked_mask[:, :, np.newaxis], locked_dist, result)
+        locked_map = self._locked_class[seed_id]
+        locked_mask = locked_map >= 0        # (H, W)
+        if locked_mask.any():
+            locked_dist = np.full((self.H, self.W, K), config.PROB_FLOOR, dtype=np.float32)
+            # Assign remaining probability mass to the locked class.
+            for cls in range(K):
+                cell_mask = locked_map == cls
+                if cell_mask.any():
+                    locked_dist[cell_mask, cls] = 1.0 - (K - 1) * config.PROB_FLOOR
+            locked_dist = self._normalise(locked_dist)
+            result = np.where(locked_mask[:, :, np.newaxis], locked_dist, result)
 
         # Enforce PROB_FLOOR — prevents infinite KL divergence when scoring.
         result = np.maximum(result, config.PROB_FLOOR)

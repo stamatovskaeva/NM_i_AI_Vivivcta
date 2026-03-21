@@ -302,7 +302,6 @@ def main() -> int:
 
     # Seed the model with the known initial terrain (free, no query cost).
     if info.initial_states:
-        model.set_initial_grid(info.initial_states[0].grid)
         model.set_initial_states(info.initial_states)
 
     predictions: dict[int, np.ndarray] = {}
