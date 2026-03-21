@@ -77,6 +77,31 @@ class WorldModel:
             s: np.full((self.H, self.W), -1, dtype=np.int32)
             for s in range(num_seeds)
         }
+        # Per-cell settlement ruin-risk score (0=healthy, 1=likely to die).
+        # Computed from observed food/defense of live settlements.
+        self._ruin_risk: dict[int, np.ndarray] = {
+            s: np.zeros((self.H, self.W), dtype=np.float32)
+            for s in range(num_seeds)
+        }
+        # Number of times each cell's health was observed (for averaging).
+        self._health_obs: dict[int, np.ndarray] = {
+            s: np.zeros((self.H, self.W), dtype=np.int32)
+            for s in range(num_seeds)
+        }
+        # Per-cell population (average over observations) for count weighting.
+        self._population: dict[int, np.ndarray] = {
+            s: np.zeros((self.H, self.W), dtype=np.float32)
+            for s in range(num_seeds)
+        }
+        # Per-seed mean population (updated in record_settlements, used in record).
+        self._mean_population: dict[int, float] = {
+            s: 1.0 for s in range(num_seeds)
+        }
+        # Per-seed owner-cluster contribution map: (H, W) float added to class-1 prior.
+        self._owner_cluster_prior: dict[int, np.ndarray] = {
+            s: np.zeros((self.H, self.W), dtype=np.float32)
+            for s in range(num_seeds)
+        }
 
     # ── Initial state injection ─────────────────────────────────────────────────
 
@@ -141,6 +166,88 @@ class WorldModel:
         logger.info("Built terrain-aware priors for %d seeds.", min(self.num_seeds, len(initial_states)))
     # ── Observation ingestion ────────────────────────────────────────────────
 
+    def record_settlements(
+        self,
+        seed_id: int,
+        settlements: list,
+    ) -> None:
+        """
+        Ingest settlement health attributes from one SimResult.
+
+        For each observed live settlement, compute a ruin-risk score from
+        food and defense values (both 0–1).  The score is averaged across
+        multiple observations of the same cell so later queries refine it.
+
+        A high ruin_risk (close to 1) means the settlement is at risk of
+        becoming a Ruin (class 3) by year 50.  This modulates class-1/2
+        confidence downward in ``prediction_tensor``.
+        """
+        from collections import defaultdict
+
+        live = [s for s in settlements
+                if getattr(s, "alive", True)
+                and 0 <= int(s.x) < self.W and 0 <= int(s.y) < self.H]
+
+        # ── Population tracking ──────────────────────────────────────────────
+        if live:
+            pops = [float(s.population) for s in live]
+            batch_mean = sum(pops) / len(pops)
+            prev = self._mean_population[seed_id]
+            self._mean_population[seed_id] = (prev + batch_mean) / 2.0
+            for s in live:
+                x, y = int(s.x), int(s.y)
+                pop = float(s.population)
+                n = self._health_obs[seed_id][y, x]
+                self._population[seed_id][y, x] = (
+                    (self._population[seed_id][y, x] * n + pop) / (n + 1)
+                )
+
+        # ── Owner-cluster prior ──────────────────────────────────────────────
+        # For owners with ≥2 settlements, blur their positions to form a density
+        # surface. Cells inside a cluster get a boosted class-1 prior so the
+        # model expects more settlements between known ones of the same owner.
+        owner_cells: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for s in live:
+            oid = int(getattr(s, "owner_id", -1))
+            if oid >= 0:
+                owner_cells[oid].append((int(s.x), int(s.y)))
+
+        if owner_cells:
+            cluster_map = np.zeros((self.H, self.W), dtype=np.float32)
+            for cells in owner_cells.values():
+                if len(cells) < 2:
+                    continue
+                dot_map = np.zeros((self.H, self.W), dtype=np.float32)
+                for cx, cy in cells:
+                    dot_map[cy, cx] += 1.0
+                cluster_map += gaussian_filter(dot_map, sigma=config.OWNER_CLUSTER_SIGMA)
+            peak = cluster_map.max()
+            if peak > 0:
+                cluster_map /= peak
+            # Running max — later calls only strengthen the signal.
+            self._owner_cluster_prior[seed_id] = np.maximum(
+                self._owner_cluster_prior[seed_id], cluster_map
+            )
+
+        # ── Ruin risk ────────────────────────────────────────────────────────
+        for s in settlements:
+            x = int(s.x)
+            y = int(s.y)
+            if x < 0 or x >= self.W or y < 0 or y >= self.H:
+                continue
+            if not s.alive:
+                self._ruin_risk[seed_id][y, x] = 1.0
+                self._health_obs[seed_id][y, x] += 1
+                continue
+            food    = float(s.food)
+            defense = float(s.defense)
+            risk = max(0.0, 1.0 - 0.6 * food - 0.4 * defense)
+            n = self._health_obs[seed_id][y, x]
+            self._ruin_risk[seed_id][y, x] = (
+                (self._ruin_risk[seed_id][y, x] * n + risk) / (n + 1)
+            )
+            self._health_obs[seed_id][y, x] = n + 1
+
     def record(
         self,
         seed_id: int,
@@ -173,7 +280,14 @@ class WorldModel:
                         "Unknown terrain code %d at (%d,%d); skipping.", raw, row, col
                     )
                     continue
-                self._counts[seed_id][row, col, cls] += 1.0
+                # Population-weighted count: cells repeatedly observed as a
+                # high-population settlement accumulate more evidence weight,
+                # making the model more confident about stable settlements.
+                pop   = self._population[seed_id][row, col]
+                mean_pop = self._mean_population[seed_id]
+                weight = (pop / mean_pop) if (mean_pop > 0 and pop > 0 and cls == _T2C[1]) else 1.0
+                weight = float(np.clip(weight, 0.5, 3.0))
+                self._counts[seed_id][row, col, cls] += weight
                 self._observed[seed_id][row, col] = True
 
     # ── Derived statistics ───────────────────────────────────────────────────
@@ -195,6 +309,17 @@ class WorldModel:
 
     def mean_entropy(self, seed_id: int) -> float:
         return float(self.cell_entropy(seed_id).mean())
+
+    def seed_rank_by_entropy(self) -> list[int]:
+        """
+        Rank all seeds by mean entropy (descending).
+        
+        Returns a list of seed IDs sorted from highest to lowest entropy.
+        Seeds with higher entropy are "least understood" and should get
+        priority for remaining queries in Phase 2.
+        """
+        entropies = [(sid, self.mean_entropy(sid)) for sid in range(self.num_seeds)]
+        return [sid for sid, _ in sorted(entropies, key=lambda x: x[1], reverse=True)]
 
     # ── Prediction tensor ────────────────────────────────────────────────────
 
@@ -244,6 +369,31 @@ class WorldModel:
         prior = self._prior[seed_id]
         blend = float(config.PRIOR_BLEND)
         unobserved_estimate = (blend * prior + (1.0 - blend) * interp).astype(np.float32)
+
+        # Apply owner-cluster prior to unobserved cells:
+        # where a faction's settlements cluster, nudge class-1 upward on
+        # nearby land cells that haven't been directly queried.
+        cluster = self._owner_cluster_prior[seed_id]   # (H, W) in [0, 1]
+        if cluster.max() > 0:
+            settlement_cls = _T2C[1]
+            ocean_cls      = _T2C[10]
+            mountain_cls   = _T2C[5]
+            # Only boost unobserved, non-ocean, non-mountain cells.
+            unobs_land = (
+                (~observed)
+                & (self._locked_class[seed_id] != ocean_cls)
+                & (self._locked_class[seed_id] != mountain_cls)
+            )
+            if unobs_land.any():
+                boost = (cluster * config.OWNER_CLUSTER_BOOST)[unobs_land]
+                unobserved_estimate[unobs_land, settlement_cls] = np.minimum(
+                    unobserved_estimate[unobs_land, settlement_cls] + boost, 0.85
+                )
+                # Re-normalise just the affected rows so they sum to 1.
+                row_sums = unobserved_estimate[unobs_land].sum(axis=1, keepdims=True)
+                row_sums = np.where(row_sums > 0, row_sums, 1.0)
+                unobserved_estimate[unobs_land] /= row_sums
+
         result = np.where(observed[:, :, np.newaxis], posterior, unobserved_estimate)
 
         # Apply locked cells (Ocean / Mountain) — override with near-certain dist.
@@ -258,6 +408,31 @@ class WorldModel:
                     locked_dist[cell_mask, cls] = 1.0 - (K - 1) * config.PROB_FLOOR
             locked_dist = self._normalise(locked_dist)
             result = np.where(locked_mask[:, :, np.newaxis], locked_dist, result)
+
+        # Apply settlement ruin risk — nudge observed-settlement cells toward
+        # class 3 (Ruin) proportionally to their health score.
+        ruin_risk = self._ruin_risk[seed_id]          # (H, W)
+        has_risk   = ruin_risk > 0.0                  # (H, W)
+        if has_risk.any():
+            settlement_cls = _T2C[1]
+            port_cls       = _T2C[2]
+            ruin_cls       = _T2C[3]
+            # Only adjust cells whose dominant class is 1 (settlement) or 2 (port).
+            dominant = result.argmax(axis=2)
+            alive_settlement = has_risk & (
+                (dominant == settlement_cls) | (dominant == port_cls)
+            )
+            if alive_settlement.any():
+                risk_w = ruin_risk[alive_settlement]          # (N,)
+                # Transfer up to 40% of class-1 probability mass to class 3.
+                transfer = result[alive_settlement, settlement_cls] * risk_w * 0.4
+                result[alive_settlement, ruin_cls] = np.minimum(
+                    result[alive_settlement, ruin_cls] + transfer, 0.9
+                )
+                result[alive_settlement, settlement_cls] = np.maximum(
+                    result[alive_settlement, settlement_cls] - transfer,
+                    config.PROB_FLOOR,
+                )
 
         # Enforce PROB_FLOOR — prevents infinite KL divergence when scoring.
         result = np.maximum(result, config.PROB_FLOOR)
@@ -331,6 +506,14 @@ class WorldModel:
         """Construct terrain-aware prior probabilities from initial terrain."""
         prior = np.full((self.H, self.W, K), config.PROB_FLOOR, dtype=np.float32)
 
+        plains_cls = _T2C.get(11, 0)
+        settlement_cls = _T2C[1]
+        port_cls = _T2C[2]
+        ruin_cls = _T2C[3]
+        forest_cls = _T2C[4]
+        mountain_cls = _T2C[5]
+        ocean_cls = _T2C[10]
+
         def set_major(mask: np.ndarray, class_idx: int, confidence: float) -> None:
             if not mask.any():
                 return
@@ -342,23 +525,23 @@ class WorldModel:
         forest = grid == 4
         plains_or_empty = (grid == 0) | (grid == 11)
 
-        set_major(ocean, 0, config.STATIC_CLASS_CONFIDENCE)
-        set_major(mountain, 5, config.STATIC_CLASS_CONFIDENCE)
+        set_major(ocean, ocean_cls, config.STATIC_CLASS_CONFIDENCE)
+        set_major(mountain, mountain_cls, config.STATIC_CLASS_CONFIDENCE)
 
         # Forest mostly stays forest / empty mix.
         if forest.any():
             prior[forest, :] = config.PROB_FLOOR
-            prior[forest, 4] = 0.74
-            prior[forest, 0] = 0.20
+            prior[forest, forest_cls] = 0.74
+            prior[forest, plains_cls] = 0.20
 
         # Plains/empty bias toward class 0 with some dynamic tail.
         if plains_or_empty.any():
             prior[plains_or_empty, :] = config.PROB_FLOOR
-            prior[plains_or_empty, 0] = 0.74
-            prior[plains_or_empty, 1] = 0.10
-            prior[plains_or_empty, 2] = 0.03
-            prior[plains_or_empty, 3] = 0.06
-            prior[plains_or_empty, 4] = 0.05
+            prior[plains_or_empty, plains_cls] = 0.74
+            prior[plains_or_empty, settlement_cls] = 0.10
+            prior[plains_or_empty, port_cls] = 0.03
+            prior[plains_or_empty, ruin_cls] = 0.06
+            prior[plains_or_empty, forest_cls] = 0.05
 
         # Coastline land has elevated chance of port/settlement.
         ocean_pad = np.pad(ocean.astype(np.int8), 1)
@@ -368,9 +551,9 @@ class WorldModel:
         coast_land = coast & (~ocean) & (~mountain)
         if coast_land.any():
             prior[coast_land, :] = np.maximum(prior[coast_land, :], config.PROB_FLOOR)
-            prior[coast_land, 2] = np.maximum(prior[coast_land, 2], 0.14)
-            prior[coast_land, 1] = np.maximum(prior[coast_land, 1], 0.12)
-            prior[coast_land, 0] = np.maximum(prior[coast_land, 0], 0.56)
+            prior[coast_land, port_cls] = np.maximum(prior[coast_land, port_cls], 0.14)
+            prior[coast_land, settlement_cls] = np.maximum(prior[coast_land, settlement_cls], 0.12)
+            prior[coast_land, plains_cls] = np.maximum(prior[coast_land, plains_cls], 0.56)
 
         return self._normalise(prior)
 

@@ -20,6 +20,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -87,6 +88,7 @@ def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None
             result=result,
         )
         model.record(vp.seed_id, result.viewport_x, result.viewport_y, result.grid)
+        model.record_settlements(vp.seed_id, result.settlements)
         planner.budget.consume()
         model.save()                # save after every query — safe to interrupt
 
@@ -94,20 +96,30 @@ def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None
 
     # ── Phase 2 ─────────────────────────────────────────────────────────────
     if planner.budget.remaining > 0:
-        logger.info(
-            "Phase 2: %d queries remaining — targeting high-entropy cells",
-            planner.budget.remaining,
-        )
-        seed_cycler: list[int] = list(range(info.seeds_count)) * planner.budget.remaining
+        # Rank seeds by mean entropy (highest first) to prioritize least-understood ones
+        seed_rank = model.seed_rank_by_entropy()
+        allocation = planner.allocate_by_seed_entropy(seed_rank)
+        
+        logger.info("Phase 2: %d queries remaining — entropy-guided allocation", planner.budget.remaining)
+        for seed_id in seed_rank:
+            ent = model.mean_entropy(seed_id)
+            logger.info(f"  seed {seed_id}: entropy={ent:.4f}, will query {allocation[seed_id]}× if budget allows")
+        
         already_used: set[tuple[int, int, int]] = set()
+        queries_per_seed = {sid: 0 for sid in range(info.seeds_count)}
 
-        for seed_id in seed_cycler:
+        for seed_id in seed_rank:
             if not planner.budget.can_query():
                 break
+            # Only query this seed up to its allocated share
+            if queries_per_seed[seed_id] >= allocation[seed_id]:
+                continue
             entropy_map = model.cell_entropy(seed_id)
             phase2_vps  = planner.phase2_viewports(entropy_map, seed_id)
 
             for vp in phase2_vps:
+                if queries_per_seed[seed_id] >= allocation[seed_id]:
+                    break
                 key = (vp.seed_id, vp.x, vp.y)
                 if key in already_used:
                     continue
@@ -130,7 +142,9 @@ def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None
                     result=result,
                 )
                 model.record(vp.seed_id, result.viewport_x, result.viewport_y, result.grid)
+                model.record_settlements(vp.seed_id, result.settlements)
                 planner.budget.consume()
+                queries_per_seed[seed_id] += 1
                 model.save()
 
     logger.info("Observation complete.  %s", planner.budget)
@@ -143,12 +157,56 @@ def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None
 
 def run_predict(model: WorldModel) -> dict[int, np.ndarray]:
     """Build prediction tensors from the accumulated observations."""
+    _replay_settlement_health(model)
     logger.info("Building prediction tensors …")
     predictions = model.all_predictions()
     for seed_id, tensor in predictions.items():
         _log_prediction_stats(seed_id, tensor)
     model.save_predictions()
     return predictions
+
+
+def _replay_settlement_health(model: WorldModel) -> None:
+    """
+    Replay settlement health attributes from the observation cache into the
+    model so that ruin-risk scores are populated even when ``--phase predict``
+    is run standalone (without re-running observe).
+    """
+    cache_file = config.OBS_QUERIES_FILE
+    if not cache_file.exists():
+        return
+    n = 0
+    for line in cache_file.open("r", encoding="utf-8"):
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        sid  = d.get("seed_index")
+        resp = d.get("response", {})
+        if sid is None:
+            continue
+        settlements = [
+            type("S", (), {
+                "x":          s["x"],
+                "y":          s["y"],
+                "food":       float(s.get("food", 0)),
+                "defense":    float(s.get("defense", 0)),
+                "population": float(s.get("population", 1.0)),
+                "alive":      bool(s.get("alive", True)),
+                "has_port":   bool(s.get("has_port", False)),
+                "owner_id":   int(s.get("owner_id", -1)),
+            })()
+            for s in resp.get("settlements", [])
+        ]
+        model.record_settlements(sid, settlements)
+        n += len(settlements)
+    if n:
+        logger.info("Replayed %d settlement health observations into ruin-risk map.", n)
+        for sid in range(model.num_seeds):
+            rr = model._ruin_risk[sid]
+            high = int((rr > 0.6).sum())
+            logger.info("  seed %d: %d cells with ruin-risk, %d high-risk (>0.6)",
+                        sid, int((rr > 0).sum()), high)
 
 
 def _log_prediction_stats(seed_id: int, tensor: np.ndarray) -> None:
@@ -200,6 +258,7 @@ def run_visualise(model: WorldModel, predictions: dict[int, np.ndarray]) -> None
 
     # Colour map for 6 terrain classes.
     CLASS_COLORS = ["#1a78c2", "#c2a94a", "#2d7c32", "#a8d96e", "#c44b2b", "#888"]
+    class_count = config.NUM_TERRAIN_CLASSES
     cmap = mcolors.ListedColormap(CLASS_COLORS)
 
     n = model.num_seeds
@@ -209,7 +268,13 @@ def run_visualise(model: WorldModel, predictions: dict[int, np.ndarray]) -> None
     for s in range(n):
         # Top row: dominant terrain class.
         dominant = predictions[s].argmax(axis=2)
-        axes[0, s].imshow(dominant, cmap=cmap, vmin=0, vmax=5, interpolation="nearest")
+        axes[0, s].imshow(
+            dominant,
+            cmap=cmap,
+            vmin=0,
+            vmax=class_count - 1,
+            interpolation="nearest",
+        )
         axes[0, s].set_title(f"Seed {s}\n(dominant class)")
         axes[0, s].axis("off")
 

@@ -189,3 +189,41 @@ class ObservationPlanner:
                 break
 
         return viewports
+
+    def allocate_by_seed_entropy(
+        self,
+        seed_entropy_rank: list[int],
+    ) -> dict[int, int]:
+        """
+        Allocate remaining queries across seeds, prioritizing those with
+        highest entropy (least understood).
+
+        Args:
+            seed_entropy_rank: List of seed IDs, sorted descending by entropy.
+
+        Returns:
+            dict mapping seed_id → number of queries to spend on that seed
+            during Phase 2.
+
+        Example:
+            If 5 queries remain and seed_entropy_rank = [2, 1, 0, 3, 4]:
+            Returns {2: 2, 1: 1, 0: 1, 3: 1, 4: 0} giving priority to seeds
+            with highest entropy.
+        """
+        remaining = self.budget.remaining
+        if remaining <= 0:
+            return {sid: 0 for sid in seed_entropy_rank}
+
+        # Greedy allocation: give queries to highest-entropy seeds first.
+        allocation = {sid: 0 for sid in seed_entropy_rank}
+        for i, sid in enumerate(seed_entropy_rank):
+            if remaining <= 0:
+                break
+            # Give at least 1 query to the top seeds; distribute what remains.
+            share = max(1, remaining // (self.num_seeds - i)) if i < self.num_seeds else 0
+            share = min(share, remaining)
+            allocation[sid] = share
+            remaining -= share
+
+        return allocation
+

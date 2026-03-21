@@ -27,7 +27,7 @@ NUM_SEEDS           = 5      # ground-truth seeds to predict
 # Raw grid values returned by the API (initial_states + simulate):
 #   0=Empty, 1=Settlement, 2=Port, 3=Ruin, 4=Forest, 5=Mountain,
 #   10=Ocean, 11=Plains
-# Ocean, Plains, and Empty all collapse to class 0.
+# Ocean/plains/empty collapse into prediction class 0 for API submission.
 TERRAIN_TO_CLASS: dict[int, int] = {
     0: 0,   # Empty
     1: 1,   # Settlement
@@ -60,6 +60,12 @@ PRIOR_BLEND = 0.65
 
 # Confidence assigned to static cells (Ocean/Mountain) before floor/renormalize.
 STATIC_CLASS_CONFIDENCE = 0.95
+
+# Owner-cluster prior: Gaussian sigma (cells) for spreading settlement density
+# across faction territory; boost magnitude added to class-1 prior on unobserved
+# land cells inside the cluster.
+OWNER_CLUSTER_SIGMA = 4.0    # broader than INTERP_SIGMA — faction territory is larger
+OWNER_CLUSTER_BOOST = 0.12   # max class-1 probability lift per cell
 
 # ── Query budget allocation ──────────────────────────────────────────────────
 # Phase 1: tile the full map once per seed (9 non-overlapping 15×15 windows).
