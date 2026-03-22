@@ -26,6 +26,7 @@ import json
 import logging
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -50,20 +51,33 @@ logger = logging.getLogger(__name__)
 # Observation phase
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None:
+def run_observe(
+    client: AstarClient,
+    model: WorldModel,
+    info: RoundInfo,
+    query_limit: int | None = None,
+) -> None:
     """
     Execute the two-phase observation strategy and persist all results.
 
     Phase 1: tile every seed's full map (9 viewports × 5 seeds = 45 queries).
     Phase 2: spend remaining budget on the highest-uncertainty regions.
+
+    Args:
+        query_limit: If set, cap the number of queries this run may use.
+                     Pass ``config.PHASE1_QUERY_BUDGET`` (30) for the early
+                     batch and leave ``None`` for the full run.
     """
     budget = client.get_budget()
+    effective_budget = budget.queries_remaining
+    if query_limit is not None:
+        effective_budget = min(effective_budget, query_limit)
     cache = ObservationCache()
     planner = ObservationPlanner(
         num_seeds   = info.seeds_count,
         map_width   = info.map_width,
         map_height  = info.map_height,
-        total_budget= budget.queries_remaining,
+        total_budget= effective_budget,
     )
 
     # ── Phase 1 ─────────────────────────────────────────────────────────────
@@ -154,22 +168,244 @@ def run_observe(client: AstarClient, model: WorldModel, info: RoundInfo) -> None
     logger.info(model.summary())
 
 
+def run_observe_correct(
+    client: AstarClient,
+    model: WorldModel,
+    info: RoundInfo,
+) -> None:
+    """
+    Correction observation pass (T-60 min): skip Phase 1, spend ALL remaining
+    API budget as targeted Phase 2 queries on highest-uncertainty cells.
+
+    Designed to be called after an initial ``run_observe(..., query_limit=35)``
+    followed by a tune+predict+submit cycle.  Auto-resume from cache is
+    expected before calling this.
+    """
+    budget = client.get_budget()
+    if budget.queries_remaining == 0:
+        logger.info("Correction pass: no queries remaining — skipping.")
+        return
+
+    cache = ObservationCache()
+    planner = ObservationPlanner(
+        num_seeds   = info.seeds_count,
+        map_width   = info.map_width,
+        map_height  = info.map_height,
+        total_budget= budget.queries_remaining,
+    )
+
+    logger.info(
+        "Correction pass (Phase 2 only): %d queries remaining — targeting high-entropy/terrain cells.",
+        planner.budget.remaining,
+    )
+
+    # Build fresh terrain priors so the score maps are up-to-date.
+    if info.initial_states:
+        model.set_initial_states(info.initial_states)
+
+    seed_rank = model.seed_rank_by_entropy()
+    allocation = planner.allocate_by_seed_entropy(seed_rank)
+    for seed_id in seed_rank:
+        ent = model.mean_entropy(seed_id)
+        logger.info("  seed %d: entropy=%.4f, correction queries=%d",
+                    seed_id, ent, allocation[seed_id])
+
+    already_used: set[tuple[int, int, int]] = set()
+    queries_per_seed = {sid: 0 for sid in range(info.seeds_count)}
+
+    for seed_id in seed_rank:
+        if not planner.budget.can_query():
+            break
+        if queries_per_seed[seed_id] >= allocation[seed_id]:
+            continue
+        score_map = model.correction_query_score(seed_id)
+        phase2_vps = planner.phase2_viewports(score_map, seed_id)
+
+        for vp in phase2_vps:
+            if queries_per_seed[seed_id] >= allocation[seed_id]:
+                break
+            key = (vp.seed_id, vp.x, vp.y)
+            if key in already_used:
+                continue
+            if not planner.budget.can_query():
+                break
+            already_used.add(key)
+            result = client.simulate(
+                round_id   = info.round_id,
+                seed_index = vp.seed_id,
+                vp_x=vp.x, vp_y=vp.y,
+                vp_w=vp.width, vp_h=vp.height,
+            )
+            cache.append(
+                round_id=info.round_id,
+                seed_index=vp.seed_id,
+                requested_x=vp.x,
+                requested_y=vp.y,
+                requested_w=vp.width,
+                requested_h=vp.height,
+                result=result,
+            )
+            model.record(vp.seed_id, result.viewport_x, result.viewport_y, result.grid)
+            model.record_settlements(vp.seed_id, result.settlements)
+            planner.budget.consume()
+            queries_per_seed[seed_id] += 1
+            model.save()
+
+    logger.info("Correction pass complete.  %s", planner.budget)
+    logger.info(model.summary())
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Prediction phase
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_predict(model: WorldModel) -> dict[int, np.ndarray]:
+def _tunable_param_keys() -> list[str]:
+    return [
+        "PRIOR_BLEND",
+        "OWNER_CLUSTER_BOOST",
+        "COAST_PROXIMITY_BOOST",
+        "COAST_SETTLEMENT_BOOST",
+        "FOREST_FRONTIER_SETTLEMENT_BOOST",
+        "FOREST_FRONTIER_FOREST_BOOST",
+    ]
+
+
+def _current_tuned_params() -> dict[str, float]:
+    return {k: float(getattr(config, k)) for k in _tunable_param_keys()}
+
+
+def _apply_tuned_params(params: dict[str, float], source: str) -> dict[str, float]:
+    applied: dict[str, float] = {}
+    for key in _tunable_param_keys():
+        if key not in params:
+            continue
+        value = float(params[key])
+        setattr(config, key, value)
+        applied[key] = value
+    if applied:
+        logger.info("Applied tuned parameters from %s: %s", source, applied)
+    return applied
+
+
+def _load_persisted_tuned_params(round_id: str | None = None) -> tuple[dict[str, float], str | None]:
+    sources = [
+        (config.TUNED_PARAMS_FILE, "params"),
+        (config.TUNING_REPORT_FILE, "best_params"),
+    ]
+    for path, field in sources:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read tuned parameter file %s: %s", path, exc)
+            continue
+
+        payload_round_id = payload.get("round_id")
+        if round_id and payload_round_id and payload_round_id != round_id:
+            logger.warning(
+                "Ignoring tuned parameters from %s because round_id=%s does not match active round %s.",
+                path,
+                payload_round_id,
+                round_id,
+            )
+            continue
+
+        params = payload.get(field, {})
+        if not isinstance(params, dict) or not params:
+            continue
+        return ({k: float(v) for k, v in params.items()}, str(path))
+
+    return {}, None
+
+
+def _write_tuned_params(round_id: str, params: dict[str, float], holdout_ratio: float, holdout_seed: int) -> None:
+    payload = {
+        "round_id": round_id,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "params": {k: float(v) for k, v in params.items()},
+        "holdout_ratio": float(holdout_ratio),
+        "holdout_seed": int(holdout_seed),
+    }
+    config.TUNED_PARAMS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config.TUNED_PARAMS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    logger.info("Persisted tuned parameters to %s", config.TUNED_PARAMS_FILE)
+
+
+def _write_prediction_metadata(round_id: str | None, params: dict[str, float]) -> None:
+    payload = {
+        "round_id": round_id,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "prediction_file": str(config.PRED_FILE),
+        "params": {k: float(v) for k, v in params.items()},
+    }
+    config.PRED_META_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config.PRED_META_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    logger.info("Saved prediction metadata to %s", config.PRED_META_FILE)
+
+
+def _load_prediction_metadata() -> dict:
+    if not config.PRED_META_FILE.exists():
+        return {}
+    try:
+        return json.loads(config.PRED_META_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Could not read prediction metadata %s: %s", config.PRED_META_FILE, exc)
+        return {}
+
+
+def _ensure_submission_consistency(round_id: str) -> dict[str, float]:
+    current_params = _current_tuned_params()
+    persisted_params, persisted_source = _load_persisted_tuned_params(round_id)
+    prediction_meta = _load_prediction_metadata()
+
+    if persisted_params and current_params != persisted_params:
+        raise RuntimeError(
+            "Refusing to submit because active parameters do not match persisted tuned parameters "
+            f"from {persisted_source}. Active={current_params} persisted={persisted_params}"
+        )
+
+    if persisted_params:
+        meta_params = prediction_meta.get("params")
+        meta_round_id = prediction_meta.get("round_id")
+        if not meta_params:
+            raise RuntimeError(
+                "Refusing to submit because tuned parameters exist but prediction metadata is missing. "
+                "Run predict again before submit."
+            )
+        meta_params = {k: float(v) for k, v in meta_params.items()}
+        if meta_round_id and meta_round_id != round_id:
+            raise RuntimeError(
+                "Refusing to submit because prediction metadata belongs to a different round. "
+                f"prediction_round={meta_round_id} active_round={round_id}"
+            )
+        if meta_params != current_params:
+            raise RuntimeError(
+                "Refusing to submit because predictions were generated with different parameters. "
+                f"prediction_params={meta_params} active_params={current_params}"
+            )
+
+    logger.info("Submission parameter check passed: %s", current_params)
+    return current_params
+
+
+def run_predict(model: WorldModel, round_id: str | None = None) -> dict[int, np.ndarray]:
     """Build prediction tensors from the accumulated observations."""
-    _replay_settlement_health(model)
+    persisted_params, source = _load_persisted_tuned_params(round_id)
+    if persisted_params and source is not None:
+        _apply_tuned_params(persisted_params, source)
+
+    _replay_settlement_health(model, round_id)
     logger.info("Building prediction tensors …")
     predictions = model.all_predictions()
     for seed_id, tensor in predictions.items():
         _log_prediction_stats(seed_id, tensor)
     model.save_predictions()
+    _write_prediction_metadata(round_id, _current_tuned_params())
     return predictions
 
 
-def _replay_settlement_health(model: WorldModel) -> None:
+def _replay_settlement_health(model: WorldModel, round_id: str | None = None) -> None:
     """
     Replay settlement health attributes from the observation cache into the
     model so that ruin-risk scores are populated even when ``--phase predict``
@@ -184,6 +420,8 @@ def _replay_settlement_health(model: WorldModel) -> None:
         try:
             d = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if round_id and d.get("round_id") != round_id:
             continue
         sid  = d.get("seed_index")
         resp = d.get("response", {})
@@ -348,7 +586,7 @@ def run_tune(
         logger.error("Tune requires cached observations. Run observe first or pass --resume with a valid cache.")
         return
 
-    _replay_settlement_health(model)
+    _replay_settlement_health(model, info.round_id)
     holdout_masks = _build_holdout_masks(model, holdout_ratio, holdout_seed)
 
     tune_levels: dict[str, list[float]] = {
@@ -431,6 +669,7 @@ def run_tune(
     )
 
     report = {
+        "round_id": info.round_id,
         "holdout_ratio": holdout_ratio,
         "holdout_seed": holdout_seed,
         "max_evals": len(candidates),
@@ -444,12 +683,14 @@ def run_tune(
         },
         "trials": rows,
     }
-    report_path = config.CACHE_DIR / "tuning_report.json"
+    report_path = config.TUNING_REPORT_FILE
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Tuning report saved to %s", report_path)
 
-    predictions = run_predict(model)
+    _write_tuned_params(info.round_id, best_params, holdout_ratio, holdout_seed)
+
+    predictions = run_predict(model, info.round_id)
     logger.info("Predictions regenerated with tuned weights for optional submit.")
 
 
@@ -462,6 +703,8 @@ def run_submit(
     round_id: str,
     predictions: dict[int, np.ndarray],
 ) -> None:
+    active_params = _ensure_submission_consistency(round_id)
+    logger.info("Submitting with parameters: %s", active_params)
     logger.info("Submitting predictions for round %s …", round_id)
     results = client.submit_all_predictions(round_id, predictions)
     logger.info("All seeds submitted: %s", results)
@@ -470,7 +713,7 @@ def run_submit(
 def run_baseline_submit(client: AstarClient, info: RoundInfo, model: WorldModel) -> None:
     """Submit a no-query baseline built from initial-state priors only."""
     logger.info("Building and submitting baseline from priors (no simulation queries).")
-    predictions = run_predict(model)
+    predictions = run_predict(model, info.round_id)
     run_submit(client, info.round_id, predictions)
 
 
@@ -537,10 +780,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--phase",
-        choices=["all", "observe", "predict", "submit", "status", "visualise", "baseline-submit", "tune"],
+        choices=["all", "observe", "observe-correct", "predict", "submit", "status", "visualise", "baseline-submit", "tune"],
         default="all",
         help=(
             "Which phase to run. 'all' runs observe → predict → submit. "
+            "'observe' runs the initial observation pass (use --query-limit 30 for the 30+20 strategy). "
+            "'observe-correct' resumes from cache and spends all remaining queries as targeted corrections (run at T-60 min). "
             "'baseline-submit' skips observe and submits prior-only predictions. "
             "'tune' runs holdout evaluation + auto-weight search."
         ),
@@ -549,6 +794,16 @@ def parse_args() -> argparse.Namespace:
         "--resume",
         action="store_true",
         help="Load existing observations from cache instead of querying from scratch.",
+    )
+    p.add_argument(
+        "--query-limit",
+        type=int,
+        default=None,
+        help=(
+            "Cap the number of queries used by --phase observe. "
+            f"Defaults to all remaining budget. "
+            f"Set to {config.PHASE1_QUERY_BUDGET} for the recommended 30+20 split."
+        ),
     )
     p.add_argument(
         "--allow-submit",
@@ -580,7 +835,7 @@ def main() -> int:
     args = parse_args()
 
     # ── Load or initialise the world model ──────────────────────────────────
-    auto_resume_phases = {"predict", "submit", "visualise", "tune"}
+    auto_resume_phases = {"predict", "submit", "visualise", "tune", "observe-correct"}
     should_resume = (args.resume or args.phase in auto_resume_phases) and config.OBS_FILE.exists()
     if should_resume:
         logger.info("Resuming from cached observations: %s", config.OBS_FILE)
@@ -632,7 +887,10 @@ def main() -> int:
         return 0
 
     if args.phase in ("all", "observe"):
-        run_observe(client, model, info)
+        run_observe(client, model, info, query_limit=args.query_limit)
+
+    if args.phase == "observe-correct":
+        run_observe_correct(client, model, info)
 
     if args.phase == "tune":
         run_tune(
@@ -645,7 +903,7 @@ def main() -> int:
         return 0
 
     if args.phase in ("all", "predict", "visualise", "submit"):
-        predictions = run_predict(model)
+        predictions = run_predict(model, info.round_id)
 
     if args.phase == "visualise":
         run_visualise(model, predictions)

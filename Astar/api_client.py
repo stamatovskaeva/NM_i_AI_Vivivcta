@@ -333,3 +333,19 @@ class AstarClient:
             self.submit_prediction(round_id, idx, predictions[idx])
             for idx in sorted(predictions)
         ]
+
+    def get_my_rounds(self) -> list[dict]:
+        """GET /my-rounds — team-specific rounds with scores/rank/budget."""
+        return self._request("GET", "/my-rounds")  # type: ignore[return-value]
+
+    def get_my_predictions(self, round_id: str) -> list[dict]:
+        """GET /my-predictions/{round_id} — submitted predictions + confidence grids."""
+        return self._request("GET", f"/my-predictions/{round_id}")  # type: ignore[return-value]
+
+    def get_analysis(self, round_id: str, seed_index: int) -> dict:
+        """
+        GET /analysis/{round_id}/{seed_index} — post-round prediction vs ground truth.
+
+        Requires round status to be ``scoring`` or ``completed``.
+        """
+        return self._request("GET", f"/analysis/{round_id}/{seed_index}")  # type: ignore[return-value]

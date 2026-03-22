@@ -1,21 +1,22 @@
 {
+  "round_id": "b3a0be6b-b48b-419d-916a-b7a77fa58c4d",
   "holdout_ratio": 0.2,
   "holdout_seed": 42,
   "max_evals": 24,
   "best_params": {
-    "PRIOR_BLEND": 0.55,
+    "PRIOR_BLEND": 0.75,
     "OWNER_CLUSTER_BOOST": 0.08,
-    "COAST_PROXIMITY_BOOST": 0.1,
-    "COAST_SETTLEMENT_BOOST": 0.04,
-    "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
-    "FOREST_FRONTIER_FOREST_BOOST": 0.02
+    "COAST_PROXIMITY_BOOST": 0.14,
+    "COAST_SETTLEMENT_BOOST": 0.06,
+    "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
+    "FOREST_FRONTIER_FOREST_BOOST": 0.06
   },
   "best_metrics": {
-    "mean_kl": 1.1644142692857753,
-    "mean_cross_entropy": 1.2159268738793545,
-    "top1_accuracy": 0.5377049180327869,
+    "mean_kl": 0.5598784436344916,
+    "mean_cross_entropy": 0.6065429655891944,
+    "top1_accuracy": 0.8969445882962196,
     "heldout_cells": 1600,
-    "heldout_weight": 1830.0
+    "heldout_weight": 1931.0
   },
   "trials": [
     {
@@ -28,11 +29,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
         "FOREST_FRONTIER_FOREST_BOOST": 0.04
       },
-      "mean_cross_entropy": 1.235712353649035,
-      "mean_kl": 1.1841998157605447,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6413640042526743,
+      "mean_kl": 0.5946995139060275,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 2,
@@ -44,11 +45,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.04
       },
-      "mean_cross_entropy": 1.2606299561880976,
-      "mean_kl": 1.2091173515945184,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.612524742786283,
+      "mean_kl": 0.5658602524396362,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 3,
@@ -60,11 +61,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2419944554730191,
-      "mean_kl": 1.190481867555712,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6456416094012979,
+      "mean_kl": 0.5989771111526371,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 4,
@@ -76,11 +77,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2450139113462688,
-      "mean_kl": 1.193501356781506,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6454213486626506,
+      "mean_kl": 0.5987568978260738,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 5,
@@ -92,11 +93,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2481560545540897,
-      "mean_kl": 1.1966434999893272,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6584588420755316,
+      "mean_kl": 0.6117943754349269,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 6,
@@ -108,11 +109,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
         "FOREST_FRONTIER_FOREST_BOOST": 0.04
       },
-      "mean_cross_entropy": 1.2411969794601692,
-      "mean_kl": 1.189684391542862,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6538952788437419,
+      "mean_kl": 0.6072308122031371,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 7,
@@ -124,11 +125,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.06
       },
-      "mean_cross_entropy": 1.254385175861296,
-      "mean_kl": 1.2028726046202614,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6065429655891944,
+      "mean_kl": 0.5598784436344916,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 8,
@@ -140,11 +141,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2711200985100752,
-      "mean_kl": 1.2196075105927682,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6252737099614433,
+      "mean_kl": 0.5786091959087544,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 9,
@@ -156,11 +157,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.04
       },
-      "mean_cross_entropy": 1.26416432531805,
-      "mean_kl": 1.212651754077015,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6287158430703004,
+      "mean_kl": 0.5820513448216396,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 10,
@@ -172,11 +173,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.04
       },
-      "mean_cross_entropy": 1.2384869851701246,
-      "mean_kl": 1.186974430605362,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.651317918442618,
+      "mean_kl": 0.6046534359979852,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 11,
@@ -188,11 +189,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2676236512231045,
-      "mean_kl": 1.2161109966007086,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6131797723360225,
+      "mean_kl": 0.5665152740873617,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 12,
@@ -204,11 +205,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2428064898714992,
-      "mean_kl": 1.1912939353067367,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6420055766725467,
+      "mean_kl": 0.5953410784238857,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 13,
@@ -220,11 +221,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.04
       },
-      "mean_cross_entropy": 1.2188157712175547,
-      "mean_kl": 1.167303216652792,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6764064257407917,
+      "mean_kl": 0.6297419116881028,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 14,
@@ -236,11 +237,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.06
       },
-      "mean_cross_entropy": 1.2561102528389685,
-      "mean_kl": 1.2045976815979338,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6280312915962017,
+      "mean_kl": 0.5813667933475409,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 15,
@@ -252,11 +253,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.06
       },
-      "mean_cross_entropy": 1.233736232069672,
-      "mean_kl": 1.1822236274760929,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6535945756024243,
+      "mean_kl": 0.6069300931577915,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 16,
@@ -268,11 +269,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.244939001531549,
-      "mean_kl": 1.1934264136142418,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6450520401356568,
+      "mean_kl": 0.5983875497890099,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 17,
@@ -284,11 +285,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.06
       },
-      "mean_cross_entropy": 1.2197713049383112,
-      "mean_kl": 1.1682587503735484,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6815468755057289,
+      "mean_kl": 0.6348823772570681,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 18,
@@ -300,11 +301,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2454780620303962,
-      "mean_kl": 1.1939654907893613,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6491419013333036,
+      "mean_kl": 0.6024773951826288,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 19,
@@ -316,11 +317,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2728731082436817,
-      "mean_kl": 1.2213605370026468,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6232835719277982,
+      "mean_kl": 0.5766190736791372,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 20,
@@ -332,11 +333,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.06
       },
-      "mean_cross_entropy": 1.2614487111242743,
-      "mean_kl": 1.2099361565595117,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6407355570780805,
+      "mean_kl": 0.5940710509274056,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 21,
@@ -348,11 +349,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.07,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2159268738793545,
-      "mean_kl": 1.1644142692857753,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6530642793439078,
+      "mean_kl": 0.606399804801289,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 22,
@@ -364,11 +365,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.02
       },
-      "mean_cross_entropy": 1.2687368590975068,
-      "mean_kl": 1.217224287856472,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6110643478701733,
+      "mean_kl": 0.5643998654255405,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 23,
@@ -380,11 +381,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.05,
         "FOREST_FRONTIER_FOREST_BOOST": 0.04
       },
-      "mean_cross_entropy": 1.25892098848937,
-      "mean_kl": 1.207408400572063,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.609275932450297,
+      "mean_kl": 0.5626114342016362,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     },
     {
       "rank": 24,
@@ -396,11 +397,11 @@
         "FOREST_FRONTIER_SETTLEMENT_BOOST": 0.1,
         "FOREST_FRONTIER_FOREST_BOOST": 0.06
       },
-      "mean_cross_entropy": 1.2160791282445356,
-      "mean_kl": 1.1645665403272285,
-      "top1_accuracy": 0.5377049180327869,
+      "mean_cross_entropy": 0.6797013917406379,
+      "mean_kl": 0.6330368934919771,
+      "top1_accuracy": 0.8969445882962196,
       "heldout_cells": 1600,
-      "heldout_weight": 1830.0
+      "heldout_weight": 1931.0
     }
   ]
 }

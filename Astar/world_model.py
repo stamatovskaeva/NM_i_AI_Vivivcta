@@ -32,7 +32,6 @@ import config
 logger = logging.getLogger(__name__)
 
 K = config.NUM_TERRAIN_CLASSES          # 6 prediction classes
-α = config.DIRICHLET_ALPHA              # Dirichlet smoothing
 _T2C = config.TERRAIN_TO_CLASS          # raw terrain code → class index
 
 
@@ -361,31 +360,101 @@ class WorldModel:
         entropies = [(sid, self.mean_entropy(sid)) for sid in range(self.num_seeds)]
         return [sid for sid, _ in sorted(entropies, key=lambda x: x[1], reverse=True)]
 
-        def strategic_query_score(self, seed_id: int) -> np.ndarray:
-                """
-                Composite Phase-2 query score map, shape ``(H, W)``.
+    def strategic_query_score(self, seed_id: int) -> np.ndarray:
+        """
+        Composite Phase-2 query score map, shape ``(H, W)``.
 
-                Score = weighted mix of:
-                    - posterior entropy (uncertainty)
-                    - coastline proximity opportunity
-                    - forest-frontier opportunity
-                    - owner conflict frontier
-                """
-                entropy = self._normalise01(self.cell_entropy(seed_id))
-                coast = self._coast_proximity[seed_id]
-                forest = self._forest_frontier[seed_id]
-                conflict = self._owner_conflict_prior[seed_id]
+        Score = weighted mix of:
+            - posterior entropy (uncertainty)
+            - coastline proximity opportunity
+            - forest-frontier opportunity
+            - owner conflict frontier
+        """
+        entropy = self._normalise01(self.cell_entropy(seed_id))
+        coast = self._coast_proximity[seed_id]
+        forest = self._forest_frontier[seed_id]
+        conflict = self._owner_conflict_prior[seed_id]
 
-                score = (
-                        config.PHASE2_WEIGHT_ENTROPY * entropy
-                        + config.PHASE2_WEIGHT_COAST * coast
-                        + config.PHASE2_WEIGHT_FOREST * forest
-                        + config.PHASE2_WEIGHT_CONFLICT * conflict
-                )
+        score = (
+            config.PHASE2_WEIGHT_ENTROPY * entropy
+            + config.PHASE2_WEIGHT_COAST * coast
+            + config.PHASE2_WEIGHT_FOREST * forest
+            + config.PHASE2_WEIGHT_CONFLICT * conflict
+        )
 
-                # Do not spend refinement queries on already observed cells.
-                score = np.where(self._observed[seed_id], 0.0, score)
-                return self._normalise01(score)
+        # Do not spend refinement queries on already observed cells.
+        score = np.where(self._observed[seed_id], 0.0, score)
+        return self._normalise01(score)
+
+    def correction_query_score(self, seed_id: int) -> np.ndarray:
+        """
+        Score map for the T-60 correction pass, shape ``(H, W)``.
+
+        Unlike ``strategic_query_score`` (which only targets unobserved cells),
+        this method deliberately re-queries volatile terrain types that are
+        known to change over time (Settlement, Forest) while also filling
+        remaining coverage gaps.
+
+        Score = w_vol * volatility_risk + w_cov * (1 - observed), where
+        weights are adaptive by current seed coverage:
+
+            if coverage < CORRECTION_COVERAGE_TARGET:
+                w_cov = CORRECTION_WEIGHT_COVERAGE_LOW_COV
+                w_vol = 1 - w_cov
+            else:
+                w_cov = CORRECTION_WEIGHT_COVERAGE
+                w_vol = CORRECTION_WEIGHT_VOLATILITY
+
+        Volatility risk per dominant class (empirically derived from R16):
+            Settlement → 1.00  (53 transitions observed)
+            Forest     → 0.80  (48 transitions)
+            Plains     → 0.50  (57 transitions — new settlements sprout here)
+            Port       → 0.30
+            Ruin       → 0.20
+            Ocean/Mountain → 0.00  (never changed)
+        """
+        observed = self._observed[seed_id]          # (H, W)
+        posterior = self._posterior(seed_id)         # (H, W, K)
+        dominant = posterior.argmax(axis=2)          # (H, W)
+
+        # Map dominant class index → volatility risk
+        settlement_cls = _T2C[1]
+        port_cls       = _T2C[2]
+        ruin_cls       = _T2C[3]
+        forest_cls     = _T2C[4]
+        # class 0 covers Empty/Plains/Ocean — Plains is volatile, Ocean is not;
+        # we use the locked_class map to identify Ocean/Mountain cells.
+        locked = self._locked_class[seed_id]         # (H, W), -1 if not locked
+        ocean_cls    = _T2C[10]
+        mountain_cls = _T2C[5]
+
+        risk = np.full((self.H, self.W), config.CORRECTION_VOLATILITY_PLAINS, dtype=np.float32)
+        risk[dominant == settlement_cls] = config.CORRECTION_VOLATILITY_SETTLEMENT
+        risk[dominant == forest_cls]     = config.CORRECTION_VOLATILITY_FOREST
+        risk[dominant == port_cls]       = config.CORRECTION_VOLATILITY_PORT
+        risk[dominant == ruin_cls]       = config.CORRECTION_VOLATILITY_RUIN
+        # Ocean and Mountain cells never change — zero them out
+        risk[locked == ocean_cls]    = config.CORRECTION_VOLATILITY_STATIC
+        risk[locked == mountain_cls] = config.CORRECTION_VOLATILITY_STATIC
+        # Only apply volatility risk to cells we have actually observed
+        volatility = np.where(observed, risk, 0.0)
+
+        # Coverage component: reward unobserved cells
+        coverage = np.where(observed, 0.0, 1.0).astype(np.float32)
+
+        coverage_ratio = float(observed.mean())
+        if coverage_ratio < float(config.CORRECTION_COVERAGE_TARGET):
+            w_cov = float(config.CORRECTION_WEIGHT_COVERAGE_LOW_COV)
+            w_vol = 1.0 - w_cov
+        else:
+            w_cov = float(config.CORRECTION_WEIGHT_COVERAGE)
+            w_vol = float(config.CORRECTION_WEIGHT_VOLATILITY)
+
+        score = (
+            w_vol * self._normalise01(volatility)
+            + w_cov * coverage
+        )
+        return self._normalise01(score)
 
     # ── Prediction tensor ────────────────────────────────────────────────────
 
@@ -399,6 +468,14 @@ class WorldModel:
         """
         posterior = self._posterior(seed_id)        # (H, W, K)
         observed  = self._observed[seed_id]         # (H, W)
+
+        # Optional calibration control on observed/posterior probabilities.
+        # temp < 1.0 sharpens confidence, temp > 1.0 softens.
+        temp = float(getattr(config, "OBSERVED_POSTERIOR_TEMPERATURE", 1.0))
+        if temp != 1.0:
+            safe = np.clip(posterior, config.PROB_FLOOR, 1.0)
+            posterior = np.power(safe, 1.0 / temp).astype(np.float32)
+            posterior = self._normalise(posterior)
 
         if observed.all():
             return posterior
@@ -551,7 +628,8 @@ class WorldModel:
         Dirichlet-smoothed empirical distribution, shape ``(H, W, K)``.
         Each cell sums to 1.
         """
-        counts   = self._counts[seed_id] + α          # (H, W, K)
+        alpha = float(getattr(config, "DIRICHLET_ALPHA", 0.1))
+        counts   = self._counts[seed_id] + alpha      # (H, W, K)
         total    = counts.sum(axis=2, keepdims=True)   # (H, W, 1)
         return (counts / total).astype(np.float32)
 
@@ -561,9 +639,10 @@ class WorldModel:
         Falls back to uniform if nothing has been observed yet.
         """
         observed_mask = self._observed[seed_id]
+        alpha = float(getattr(config, "DIRICHLET_ALPHA", 0.1))
         if observed_mask.any():
             total_counts = self._counts[seed_id][observed_mask].sum(axis=0)  # (K,)
-            total_counts += α
+            total_counts += alpha
             return (total_counts / total_counts.sum()).astype(np.float32)
         # If no observations, fall back to mean of terrain-aware prior.
         return self._prior[seed_id].mean(axis=(0, 1)).astype(np.float32)

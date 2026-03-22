@@ -165,6 +165,7 @@ class ObservationPlanner:
 
         viewports: list[Viewport] = []
         seen_centres: set[tuple[int, int]] = set()
+        min_spacing = int(getattr(config, "PHASE2_MIN_ANCHOR_SPACING", 0))
 
         # Smooth the score map to find the hottest region.
         flat_idx = np.argsort(score_map.ravel())[::-1]
@@ -179,6 +180,11 @@ class ObservationPlanner:
             y = max(0, min(cy - half, self.map_height - config.VIEWPORT_MAX_SIZE))
             centre = (x, y)
             if centre in seen_centres:
+                continue
+            if min_spacing > 0 and any(
+                (abs(x - sx) < min_spacing and abs(y - sy) < min_spacing)
+                for sx, sy in seen_centres
+            ):
                 continue
             seen_centres.add(centre)
             w = min(config.VIEWPORT_MAX_SIZE, self.map_width  - x)
