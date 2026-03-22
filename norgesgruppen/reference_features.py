@@ -8,74 +8,83 @@ import cv2
 import numpy as np
 
 
-IMAGENET_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
-IMAGENET_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
+def normalize_product_name(name: str) -> str:
+    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.lower()
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return " ".join(normalized.split())
 
 
-def normalize_product_name(name):
-    s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    s = re.sub(r"[^a-z0-9]+", " ", s.lower())
-    return " ".join(s.split())
+def trim_border(image_rgb: np.ndarray, trim_ratio: float = 0.08) -> np.ndarray:
+    height, width = image_rgb.shape[:2]
+    if height < 8 or width < 8:
+        return image_rgb
+
+    y_margin = int(round(height * trim_ratio))
+    x_margin = int(round(width * trim_ratio))
+
+    y1 = min(max(y_margin, 0), max(height - 2, 0))
+    y2 = max(y1 + 1, height - y_margin)
+    x1 = min(max(x_margin, 0), max(width - 2, 0))
+    x2 = max(x1 + 1, width - x_margin)
+    return image_rgb[y1:y2, x1:x2]
 
 
-def trim_border(img, ratio=0.08):
-    h, w = img.shape[:2]
-    if h < 8 or w < 8:
-        return img
-    dy, dx = int(round(h * ratio)), int(round(w * ratio))
-    y1 = min(max(dy, 0), max(h - 2, 0))
-    y2 = max(y1 + 1, h - dy)
-    x1 = min(max(dx, 0), max(w - 2, 0))
-    x2 = max(x1 + 1, w - dx)
-    return img[y1:y2, x1:x2]
-
-
-def build_fg_mask(img_rgb):
-    hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
-    sat, val = hsv[:, :, 1], hsv[:, :, 2]
-    mask = np.logical_or(sat > 30, val < 235)
+def build_foreground_mask(image_rgb: np.ndarray) -> np.ndarray:
+    hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
+    saturation = hsv[:, :, 1]
+    value = hsv[:, :, 2]
+    mask = np.logical_or(saturation > 30, value < 235)
     if float(mask.mean()) < 0.05:
         mask = np.ones(mask.shape, dtype=bool)
     return mask.astype(np.uint8) * 255
 
 
-def compute_descriptor(img_rgb):
-    trimmed = trim_border(img_rgb)
+def compute_descriptor(image_rgb: np.ndarray) -> np.ndarray:
+    trimmed = trim_border(image_rgb)
     hsv = cv2.cvtColor(trimmed, cv2.COLOR_RGB2HSV)
-    mask = build_fg_mask(trimmed)
+    mask = build_foreground_mask(trimmed)
 
-    hs_hist = cv2.calcHist([hsv], [0, 1], mask, [24, 8], [0, 180, 0, 256]).astype(np.float32).ravel()
-    v_hist = cv2.calcHist([hsv], [2], mask, [8], [0, 256]).astype(np.float32).ravel()
-    if hs_hist.sum() > 0:
-        hs_hist /= hs_hist.sum()
-    if v_hist.sum() > 0:
-        v_hist /= v_hist.sum()
+    hs_hist = cv2.calcHist([hsv], [0, 1], mask, [24, 8], [0, 180, 0, 256]).astype(np.float32)
+    v_hist = cv2.calcHist([hsv], [2], mask, [8], [0, 256]).astype(np.float32)
 
-    # spatial colour features on a 3x3 grid
-    grid = 3
-    h, w = hsv.shape[:2]
-    grid_feats = []
-    for r in range(grid):
-        for c in range(grid):
-            y1, y2 = (r * h) // grid, ((r + 1) * h) // grid
-            x1, x2 = (c * w) // grid, ((c + 1) * w) // grid
+    hs_hist = hs_hist.reshape(-1)
+    v_hist = v_hist.reshape(-1)
+    if float(hs_hist.sum()) > 0:
+        hs_hist /= float(hs_hist.sum())
+    if float(v_hist.sum()) > 0:
+        v_hist /= float(v_hist.sum())
+
+    grid_features: list[float] = []
+    grid_size = 3
+    height, width = hsv.shape[:2]
+    for row_idx in range(grid_size):
+        for col_idx in range(grid_size):
+            y1 = (row_idx * height) // grid_size
+            y2 = ((row_idx + 1) * height) // grid_size
+            x1 = (col_idx * width) // grid_size
+            x2 = ((col_idx + 1) * width) // grid_size
+
             cell = hsv[y1:y2, x1:x2]
-            m = mask[y1:y2, x1:x2] > 0
-            if cell.size == 0 or not np.any(m):
-                grid_feats.extend((0.0, 0.0, 0.0))
+            cell_mask = mask[y1:y2, x1:x2] > 0
+            if cell.size == 0 or not np.any(cell_mask):
+                grid_features.extend((0.0, 0.0, 0.0))
                 continue
-            px = cell[m]
-            grid_feats.extend((
-                float(px[:, 0].mean()) / 180.0,
-                float(px[:, 1].mean()) / 255.0,
-                float(px[:, 2].mean()) / 255.0,
-            ))
 
-    feat = np.concatenate((hs_hist, v_hist, np.asarray(grid_feats, dtype=np.float32))).astype(np.float32)
-    norm = float(np.linalg.norm(feat))
+            masked_pixels = cell[cell_mask]
+            grid_features.extend(
+                (
+                    float(masked_pixels[:, 0].mean()) / 180.0,
+                    float(masked_pixels[:, 1].mean()) / 255.0,
+                    float(masked_pixels[:, 2].mean()) / 255.0,
+                )
+            )
+
+    feature = np.concatenate((hs_hist, v_hist, np.asarray(grid_features, dtype=np.float32))).astype(np.float32)
+    norm = float(np.linalg.norm(feature))
     if norm > 0:
-        feat /= norm
-    return feat
+        feature /= norm
+    return feature
 
 
 @dataclass
@@ -86,44 +95,49 @@ class ReferenceIndex:
     product_names: list[str]
 
     @classmethod
-    def load(cls, feat_path, manifest_path):
-        if not feat_path.exists() or not manifest_path.exists():
+    def load(cls, features_path: Path, manifest_path: Path) -> "ReferenceIndex | None":
+        if not features_path.exists() or not manifest_path.exists():
             return None
 
-        features = np.load(feat_path).astype(np.float32)
-        with open(manifest_path) as f:
-            manifest = json.load(f)
+        features = np.load(features_path).astype(np.float32)
+        with manifest_path.open("r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
 
         entries = manifest.get("entries", [])
-        cat_ids = np.asarray([int(e["category_id"]) for e in entries], dtype=np.int32)
-        codes = [str(e["product_code"]) for e in entries]
-        names = [str(e["product_name"]) for e in entries]
+        category_ids = np.asarray([int(entry["category_id"]) for entry in entries], dtype=np.int32)
+        product_codes = [str(entry["product_code"]) for entry in entries]
+        product_names = [str(entry["product_name"]) for entry in entries]
 
         if features.ndim != 2 or len(entries) != features.shape[0]:
             raise ValueError("Reference feature files are inconsistent")
 
-        return cls(features=features, category_ids=cat_ids,
-                   product_codes=codes, product_names=names)
+        return cls(
+            features=features,
+            category_ids=category_ids,
+            product_codes=product_codes,
+            product_names=product_names,
+        )
 
-    def best_match(self, desc):
-        sims = self.features @ desc
-        idx = int(np.argmax(sims))
-        return int(self.category_ids[idx]), float(sims[idx])
+    def best_match(self, descriptor: np.ndarray) -> tuple[int, float]:
+        similarities = self.features @ descriptor
+        best_idx = int(np.argmax(similarities))
+        return int(self.category_ids[best_idx]), float(similarities[best_idx])
 
-    def score_for_category(self, desc, cat_id):
-        mask = self.category_ids == int(cat_id)
-        if not np.any(mask):
+    def score_for_category(self, descriptor: np.ndarray, category_id: int) -> float | None:
+        matches = self.category_ids == int(category_id)
+        if not np.any(matches):
             return None
-        return float(np.max(self.features[mask] @ desc))
+        similarities = self.features[matches] @ descriptor
+        return float(np.max(similarities))
 
 
-def crop_from_bbox(img_rgb, bbox):
-    h, w = img_rgb.shape[:2]
-    x, y, bw, bh = bbox
-    x1 = max(0, min(w - 1, int(np.floor(x))))
-    y1 = max(0, min(h - 1, int(np.floor(y))))
-    x2 = max(x1 + 1, min(w, int(np.ceil(x + bw))))
-    y2 = max(y1 + 1, min(h, int(np.ceil(y + bh))))
+def crop_from_bbox(image_rgb: np.ndarray, bbox: list[float]) -> np.ndarray | None:
+    height, width = image_rgb.shape[:2]
+    x, y, w, h = bbox
+    x1 = max(0, min(width - 1, int(np.floor(x))))
+    y1 = max(0, min(height - 1, int(np.floor(y))))
+    x2 = max(x1 + 1, min(width, int(np.ceil(x + w))))
+    y2 = max(y1 + 1, min(height, int(np.ceil(y + h))))
     if x2 <= x1 or y2 <= y1:
         return None
-    return img_rgb[y1:y2, x1:x2]
+    return image_rgb[y1:y2, x1:x2]

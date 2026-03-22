@@ -1,15 +1,32 @@
 # norgesgruppen
 
-Minimal runtime package for NorgesGruppen Data submission.
+Full task folder for the NorgesGruppen Data object-detection challenge.
 
-## What this folder contains
+## What is inside this folder
 
-- `run.py` — submission entrypoint (required)
-- `crop_classifier.py` — optional second-stage crop classifier helper
-- `reference_features.py` — reference-based reranking helper
-- `weights/best.pt` — trained detector weights (primary model)
-- `weights/reference_features.npy` + `weights/reference_manifest.json` — optional reference reranking assets
-- `requirements.txt` — local reproducibility only (not used by competition runner)
+### Runtime / submission files
+
+- `run.py`
+- `crop_classifier.py`
+- `reference_features.py`
+- `weights/best.pt`
+- `weights/reference_features.npy`
+- `weights/reference_manifest.json`
+
+### Training and utility scripts
+
+- `scripts/` (data prep, training helpers, validation scripts)
+
+### Base model checkpoints used during training
+
+- `models/yolov8m.pt`
+- `models/yolov8n.pt`
+
+### Environment files
+
+- `requirements.txt`
+- `requirements-train.txt`
+- `requirements-local-macos.txt`
 
 ## Competition run command
 
@@ -47,4 +64,4 @@ From inside this folder:
 zip -r ../submission.zip run.py crop_classifier.py reference_features.py weights -x "*.DS_Store" "__MACOSX/*"
 ```
 
-Do **not** include markdown/text docs in the competition zip. The scoring environment is pre-provisioned and does not install dependencies from `requirements.txt`.
+Do **not** include markdown/text docs in the competition zip. The scoring environment is pre-provisioned and does not install dependencies from `requirements*.txt`.
